@@ -46,13 +46,21 @@ check_dependencies() {
 # Take the path to product folder as an input
 if [ $# -eq 0 ]; then
     error "Please provide the path to the product folder as an argument."
-    echo "Usage: $0 <path_to_product_folder>"
+    echo "Usage: $0 <path_to_product_folder> [chip] [mac_address] [connection_type]"
+    echo "  connection_type: wifi (default) or thread"
     exit 1
 fi
 
 product_folder="$1"
 chip="$2"
 mac_address="$3"
+connection_type="${4:-wifi}"  # Default to wifi if not provided
+
+# Validate connection_type
+if [ "$connection_type" != "wifi" ] && [ "$connection_type" != "thread" ]; then
+    error "Invalid connection_type: $connection_type. Must be 'wifi' or 'thread'"
+    exit 1
+fi
 
 # Validate if the provided path exists and is a directory
 if [ ! -d "$product_folder" ]; then
@@ -68,17 +76,18 @@ mkdir -p "$product_folder/configuration/output/$mac_address"
 # checks if required environment variables exists
 check_dependencies LOW_CODE_PATH ESP_MATTER_PATH ZAP_INSTALL_PATH
 
-# Find the first .zap file in the product folder
-zap_file=$(find "$(realpath "$product_folder/configuration")" -name "*.zap" -print -quit)
+# Find the appropriate .zap file based on device type
+zap_filename="data_model_${connection_type}.zap"
+zap_file=$(find "$(realpath "$product_folder/configuration")" -name "$zap_filename" -print -quit)
 
 # Check if a .zap file was found
 if [ -z "$zap_file" ]; then
-    error "No .zap file found in $product_folder/configuration"
-    create_status_json "$product_folder" "Failure" "No .zap file found" "Check the logs for more details" "$mac_address"
+    error "No $zap_filename file found in $product_folder/configuration"
+    create_status_json "$product_folder" "Failure" "No $zap_filename file found" "Check the logs for more details" "$mac_address"
     exit 1
 fi
 
-echo "Using .zap file: $zap_file"
+echo "Using .zap file for $connection_type device: $zap_file"
 if [ "$zap_file" != "$product_folder/configuration/output/$mac_address/data_model.zap" ]; then
     cp "$zap_file" "$product_folder/configuration/output/$mac_address/data_model.zap"
 fi
