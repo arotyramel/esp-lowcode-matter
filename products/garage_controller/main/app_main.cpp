@@ -4,10 +4,10 @@
 // app_main.cpp — Garage Side-Door Controller
 //
 // Matter endpoints (must match data_model_thread.zap):
-//   EP1: Root Node        — mandatory, managed by system firmware
-//   EP2: Occupancy Sensor — SICK LIDAR GPIO9  (potential-free contact)
-//   EP3: Occupancy Sensor — Gate door  GPIO10 (potential-free contact)
-//   EP4: On/Off Plugin Unit — relay GPIO4 (NO, fail-secure, door lock)
+//   EP1: Root Node          — mandatory, managed by system firmware
+//   EP2: Occupancy Sensor   — SICK LIDAR GPIO6 (potential-free contact)
+//   EP3: Occupancy Sensor   — Gate door  GPIO7 (potential-free contact)
+//   EP4: On/Off Plugin Unit — relay GPIO19 (NO, fail-secure, door lock)
 
 #include <stdio.h>
 #include <system.h>

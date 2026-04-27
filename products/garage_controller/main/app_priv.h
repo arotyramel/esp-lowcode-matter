@@ -18,11 +18,9 @@
 /*   G4   | EN                                                               */
 /*   3V3  | GND                                                              */
 
-#define GPIO_RELAY          0   /* Output: relay IN — hardwired on board    */
+#define GPIO_RELAY          19  /* Output: relay IN — hardwired on board    */
                                 /*   NO contact: LOW=locked, HIGH=unlocked  */
-                                /*   Boot safety: relay is NO → GPIO0 not   */
-                                /*   pulled low at boot → normal boot OK    */
-#define GPIO_LED_DATA       4   /* Output: WS2812B DIN chain (via 330Ω)    */
+#define GPIO_LED            9   /* Output: internal programmable LED        */
 #define GPIO_RESET_BTN      5   /* Input:  reset button, external, to GND   */
 #define GPIO_LIDAR_IN       6   /* Input:  SICK LIDAR potential-free        */
 #define GPIO_GATE_IN        7   /* Input:  garage gate door contact         */
