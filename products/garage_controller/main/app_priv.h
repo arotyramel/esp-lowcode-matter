@@ -20,7 +20,7 @@
 
 #define GPIO_RELAY          19  /* Output: relay IN — hardwired on board    */
                                 /*   NO contact: LOW=locked, HIGH=unlocked  */
-#define GPIO_LED            9   /* Output: internal programmable LED        */
+#define GPIO_LED            2   /* Output: internal programmable LED        */
 #define GPIO_RESET_BTN      5   /* Input:  reset button, external, to GND   */
 #define GPIO_LIDAR_IN       6   /* Input:  SICK LIDAR potential-free        */
 #define GPIO_GATE_IN        7   /* Input:  garage gate door contact         */

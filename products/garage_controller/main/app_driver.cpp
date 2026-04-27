@@ -4,7 +4,7 @@
 // app_driver.cpp — Garage Side-Door Controller hardware layer
 //
 // GPIO19 : Relay hardwired on board (NO — LOW=locked, HIGH=unlocked)
-// GPIO9  : Internal programmable LED (on = gate open)
+// GPIO2  : Internal programmable LED (on = gate open)
 // GPIO5  : Reset button (active-low)
 // GPIO6  : SICK LIDAR contact (active-low, pull-up)
 // GPIO7  : Gate door contact (active-low, pull-up)
