@@ -7,7 +7,7 @@
 //   EP1: Root Node          — mandatory, managed by system firmware
 //   EP2: Occupancy Sensor   — SICK LIDAR GPIO6 (potential-free contact)
 //   EP3: Occupancy Sensor   — Gate door  GPIO7 (potential-free contact)
-//   EP4: On/Off Plugin Unit — relay GPIO19 (NO, fail-secure, door lock)
+//   EP4: On/Off Plugin Unit — relay GPIO19 (NO, hardwired on board)
 
 #include <stdio.h>
 #include <system.h>

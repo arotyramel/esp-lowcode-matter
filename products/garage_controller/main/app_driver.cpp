@@ -3,16 +3,17 @@
 //
 // app_driver.cpp — Garage Side-Door Controller hardware layer
 //
-// GPIO19 : Relay hardwired on board (NO — LOW=locked, HIGH=unlocked)
+// GPIO19 : Relay hardwired on board (NO — LOW=off, HIGH=on) — HP GPIO, needs system_digital_write
 // GPIO2  : Internal programmable LED (on = gate open)
 // GPIO5  : Reset button (active-low)
-// GPIO6  : SICK LIDAR contact (active-low, pull-up)
-// GPIO7  : Gate door contact (active-low, pull-up)
+// GPIO6  : SICK LIDAR contact (active-low, pull-up) — door sensor
+// GPIO7  : Gate door contact (active-low, pull-up)  — gate sensor
 
 #include <stdio.h>
 #include <stdbool.h>
 
 #include <low_code.h>
+#include <system.h>
 #include <relay_driver.h>
 #include <button_driver.h>
 
@@ -20,17 +21,18 @@
 
 static const char *TAG = "app_driver";
 
+// Relay fires when either HA switch is on OR the door sensor (LIDAR) detects.
+// Door sensor has priority: LIDAR active keeps relay on even if HA switch is off.
 static struct {
-    bool lock_unlocked;
-    bool lidar_active;
-    bool gate_open;
+    bool ha_switch_on;  // HA commanded relay ON
+    bool lidar_active;  // door sensor (LIDAR) currently detecting
+    bool gate_open;     // gate contact state (informational only)
 } g_state = {};
 
 static button_handle_t s_btn_reset = NULL;
 static button_handle_t s_btn_lidar = NULL;
 static button_handle_t s_btn_gate  = NULL;
 
-/* LED mirrors gate_open state */
 static void led_update(void)
 {
     relay_driver_set_power(GPIO_LED, g_state.gate_open);
@@ -38,11 +40,19 @@ static void led_update(void)
 
 /* ── Relay ──────────────────────────────────────────────────────────────── */
 
+static void relay_update(void)
+{
+    bool on = g_state.ha_switch_on || g_state.lidar_active;
+    // GPIO19 is a HP GPIO — relay_driver (LP-only) does nothing on it; use system_digital_write
+    system_digital_write(GPIO_RELAY, on ? HIGH : LOW);
+    printf("%s: Relay → %s (ha=%d lidar=%d)\n", TAG, on ? "ON" : "OFF",
+           g_state.ha_switch_on, g_state.lidar_active);
+}
+
 int app_driver_set_lock_state(bool unlocked)
 {
-    g_state.lock_unlocked = unlocked;
-    printf("%s: Relay → %s\n", TAG, unlocked ? "UNLOCKED" : "LOCKED");
-    relay_driver_set_power(GPIO_RELAY, unlocked);
+    g_state.ha_switch_on = unlocked;
+    relay_update();
     return 0;
 }
 
@@ -51,7 +61,8 @@ int app_driver_set_lock_state(bool unlocked)
 int app_driver_report_lidar(bool active)
 {
     g_state.lidar_active = active;
-    printf("%s: LIDAR → %s\n", TAG, active ? "ACTIVE" : "CLEAR");
+    printf("%s: Door sensor → %s\n", TAG, active ? "DETECTED" : "CLEAR");
+    relay_update();
 
     bool val = active;
     low_code_feature_data_t feature = {};
@@ -66,7 +77,7 @@ int app_driver_report_lidar(bool active)
 int app_driver_report_gate(bool open)
 {
     g_state.gate_open = open;
-    printf("%s: Gate → %s\n", TAG, open ? "OPEN" : "CLOSED");
+    printf("%s: Gate sensor → %s\n", TAG, open ? "OPEN" : "CLOSED");
     led_update();
 
     bool val = open;
@@ -108,11 +119,11 @@ int app_driver_init()
 {
     printf("%s: Initializing garage controller driver\n", TAG);
 
-    relay_driver_init(GPIO_RELAY);
-    relay_driver_set_power(GPIO_RELAY, false);  /* start locked */
+    system_set_pin_mode(GPIO_RELAY, OUTPUT);
+    system_digital_write(GPIO_RELAY, LOW);
 
     relay_driver_init(GPIO_LED);
-    relay_driver_set_power(GPIO_LED, false);    /* LED off at boot */
+    relay_driver_set_power(GPIO_LED, false);
 
     button_config_t reset_cfg = {
         .long_press_time  = 3000,

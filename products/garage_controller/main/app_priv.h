@@ -6,20 +6,22 @@
 #include <low_code.h>
 
 /* ── GPIO pin assignments — ESP32-C6 Relay X1 V1.1 board ───────────────── */
-/* Single left header solution — 5V, GND, and all signal pins on one header */
+/* LP core can only drive LP GPIOs (0-7) — all outputs must be in that range*/
 /*                                                                           */
 /*   Left header (top→bottom):                                               */
-/*   GND  | 5V   ← LED strip power from 5V pin                             */
+/*   GND  | 5V                                                               */
 /*   G12  | G13                                                              */
 /*   G11  | ?                                                                */
 /*   G8   | G1                                                               */
-/*   G0   | G7   ← G0 hardwired to relay coil                              */
+/*   G0   | G7   ← G0 hardwired to relay coil (NO, safe to boot on GPIO0)  */
 /*   G6   | G5                                                               */
 /*   G4   | EN                                                               */
 /*   3V3  | GND                                                              */
 
 #define GPIO_RELAY          19  /* Output: relay IN — hardwired on board    */
-                                /*   NO contact: LOW=locked, HIGH=unlocked  */
+                                /*   NO contact: LOW=off, HIGH=on           */
+                                /*   HP GPIO — must use system_digital_write*/
+                                /*   not relay_driver (LP-only API)         */
 #define GPIO_LED            2   /* Output: internal programmable LED        */
 #define GPIO_RESET_BTN      5   /* Input:  reset button, external, to GND   */
 #define GPIO_LIDAR_IN       6   /* Input:  SICK LIDAR potential-free        */
