@@ -2,6 +2,7 @@
 import json, copy, os
 
 BASE = "/workspaces/esp-lowcode-matter/products"
+TOOLS = "/workspaces/esp-lowcode-matter/tools/dependencies/esp-matter/connectedhomeip/connectedhomeip/scripts/tools/zap/tests/inputs"
 OUT_DIR = f"{BASE}/garage_controller/configuration"
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -10,12 +11,32 @@ def load(product, variant):
     with open(path) as f:
         return json.load(f)
 
+def load_thread_network_diagnostics_cluster():
+    """Extract Thread Network Diagnostics cluster (code 53) from the all-clusters reference ZAP.
+    All attributes are storage=External — the system firmware ThreadDiagnosticsDelegate fills
+    them at runtime.  Adding this cluster to the root endpoint makes HA display the actual
+    Thread role (RoutingRole attribute) instead of showing 'Unknown'.
+    Only injected into the thread variant; omitted from the wifi variant."""
+    path = f"{TOOLS}/all-clusters-app.zap"
+    with open(path) as f:
+        ref = json.load(f)
+    for et in ref.get("endpointTypes", []):
+        for c in et.get("clusters", []):
+            if c.get("name") == "Thread Network Diagnostics":
+                return copy.deepcopy(c)
+    raise RuntimeError("Thread Network Diagnostics cluster not found in reference ZAP")
+
 def build_zap(variant):
     occ  = load("occupancy_sensor", variant)
     sock2 = load("socket_2_channel", variant)
 
     # EP1: root — from occupancy_sensor
     root_ep_type = copy.deepcopy(next(e for e in occ["endpointTypes"] if e["id"] == 1))
+
+    # Add Thread Network Diagnostics to root endpoint (thread variant only)
+    if variant == "thread":
+        thread_diag = load_thread_network_diagnostics_cluster()
+        root_ep_type["clusters"].append(thread_diag)
 
     # EP2: LIDAR occupancy sensor — from occupancy_sensor EP2
     lidar_ep_type = copy.deepcopy(next(e for e in occ["endpointTypes"] if e["id"] == 2))
