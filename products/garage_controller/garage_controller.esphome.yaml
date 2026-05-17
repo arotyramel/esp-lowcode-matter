@@ -1,0 +1,161 @@
+esphome:
+  name: garage-controller
+  friendly_name: Garage Controller
+
+esp32:
+  board: esp32-c6-devkitc-1
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "ciH9SGQ5eAYEy7mm04M143okzo4E7VAbMzpRGLTE9OE="
+
+ota:
+  - platform: esphome
+    password: "a95eb182295a54018d10782be80f597c"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Garage-Controller"
+    password: "Fl01mIlDlayR"
+
+captive_portal:
+
+# ── Outputs ──────────────────────────────────────────────────────────────────
+
+output:
+  - platform: gpio
+    id: led_output
+    pin:
+      number: GPIO2
+      inverted: false
+
+# ── Light (internal LED — mirrors gate open state) ───────────────────────────
+
+light:
+  - platform: binary
+    id: status_led
+    name: "Gate is open"
+    icon: mdi:garage-open
+    output: led_output
+
+# ── Switches ─────────────────────────────────────────────────────────────────
+
+switch:
+  # Physical relay — HIGH = unlocked
+  - platform: gpio
+    id: door_relay
+    name: "Door Unlocked"
+    icon: mdi:door-closed-lock
+    pin:
+      number: GPIO19
+      inverted: false      # LOW = locked, HIGH = unlocked
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  # Virtual flag set by the HA automation when the Nuki main lock is in state
+  # 2 (unlocking) or 3 (unlocked).  While ON the LIDAR script is suppressed so
+  # presence detection cannot override the Nuki-driven unlock.
+  - platform: template
+    id: nuki_lock_active
+    name: "Nuki Lock Active"
+    icon: mdi:lock-smart
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+# ── Binary sensors ────────────────────────────────────────────────────────────
+
+binary_sensor:
+  # SICK LIDAR presence sensor
+  - platform: gpio
+    id: lidar_sensor
+    name: "LIDAR Presence"
+    icon: mdi:motion-sensor
+    device_class: occupancy
+    pin:
+      number: GPIO6
+      mode:
+        input: true
+        pullup: false
+      inverted: false        # active-low: contact closed = active
+    filters:
+      - delayed_on:  50ms
+      - delayed_off: 50ms
+    on_press:
+      - script.execute: lidar_hold_relay
+
+  # Gate door contact
+  - platform: gpio
+    name: "Gate Open"
+    icon: mdi:garage-open
+    device_class: garage_door
+    pin:
+      number: GPIO7
+      mode:
+        input: true
+        pullup: true
+      inverted: true        # active-low: contact closed = gate open
+    filters:
+      - delayed_on:  50ms
+      - delayed_off: 50ms
+    on_press:
+      - light.turn_on: status_led
+    on_release:
+      - light.turn_off: status_led
+
+  # Toggle / Reset button on GPIO8 (debounced)
+  - platform: gpio
+    name: "Toggle Button"
+    id: toggle_btn
+    pin:
+      number: GPIO8
+      mode:
+        input: true
+        pullup: true
+      inverted: true        # active-low
+    filters:
+      - delayed_on:  20ms   # debounce
+      - delayed_off: 20ms
+    on_multi_click:
+      # Short click → toggle relay
+      - timing:
+          - ON for 20ms to 800ms
+          - OFF for at least 50ms
+        then:
+          - switch.toggle: door_relay
+
+# ── Scripts ───────────────────────────────────────────────────────────────────
+
+script:
+  # Turns the relay ON on LIDAR detection, holds while active, then keeps it ON
+  # for 10 s after the last detection, then locks again.
+  # Suppressed entirely when nuki_lock_active is ON (Nuki states 2 or 3) so
+  # the main-door unlock always takes priority.
+  # mode: restart resets the 10 s countdown on every new detection.
+  - id: lidar_hold_relay
+    mode: restart
+    then:
+      - if:
+          condition:
+            switch.is_off: nuki_lock_active
+          then:
+            - switch.turn_on: door_relay
+            - wait_until:
+                condition:
+                  binary_sensor.is_off: lidar_sensor
+            - delay: 10s
+            # Re-check: don't lock if Nuki took over while we were waiting
+            - if:
+                condition:
+                  switch.is_off: nuki_lock_active
+                then:
+                  - switch.turn_off: door_relay
+

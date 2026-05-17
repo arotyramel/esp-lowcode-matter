@@ -14,7 +14,6 @@ A Matter over Thread smart home device built with [ESP LowCode Matter](https://g
 - [Software Architecture](#software-architecture)
   - [Matter Data Model](#matter-data-model)
   - [Firmware Structure](#firmware-structure)
-  - [Relay Logic](#relay-logic)
   - [LED Status Indicator](#led-status-indicator)
 - [Build & Flash](#build--flash)
   - [Prerequisites](#prerequisites)
@@ -38,13 +37,12 @@ A Matter over Thread smart home device built with [ESP LowCode Matter](https://g
 ## Features
 
 - **Matter over Thread** — native integration with Home Assistant, Apple Home, Google Home, and Amazon Alexa via your existing Thread Border Router
-- **Thread Router** — the ESP32-C6 acts as a Thread Router, extending the Thread mesh for other devices
-- **Door lock relay** — controls a 12V/24V electric strike via the on-board optocoupled relay
-- **SICK LIDAR door sensor** — detects presence at the side door; automatically activates the relay while detection is active
-- **Gate contact sensor** — monitors the garage gate open/closed state via a potential-free magnetic contact; reported to HA only
-- **Relay priority logic** — LIDAR detection overrides the HA switch: if LIDAR is active, the relay stays on even if the switch is turned off
-- **Internal status LED** — single on-board LED mirrors the gate sensor state
-- **Reset button** — short press triggers factory reset for re-pairing
+- **Thread Router** — the ESP32-C6 acts as a Thread Router (not a Border Router), extending the Thread mesh for other devices
+- **Door lock relay** — controls a 12V/24V electric strike via the optocoupled relay hardwired on the board (GPIO19)
+- **SICK LIDAR input** — monitors a potential-free contact from an industrial SICK LIDAR distance sensor for presence/intrusion detection
+- **Gate contact input** — monitors the garage door open/closed state via a potential-free magnetic contact
+- **Internal status LED** — the on-board LED (GPIO2) mirrors the gate open/closed state
+- **Toggle button** — single click manually toggles the relay (unlock/lock); hold 3 seconds for Matter factory reset
 - **No local toolchain** — built entirely in GitHub Codespaces (browser-based VS Code), flashed via WebUSB
 
 ---
@@ -55,27 +53,26 @@ A Matter over Thread smart home device built with [ESP LowCode Matter](https://g
 
 | Component | Specification | Qty |
 |---|---|---|
-| ESP32-C6 Relay X1 V1.1 | ESP32-C6, USB-C, on-board relay | 1 |
+| ESP32-C6 Relay X1 V1.1 | ESP32-C6, USB-C, relay hardwired on-board | 1 |
+| Tactile button | SPST NO, 6mm | 1 |
 | SICK LIDAR | Potential-free NC/NO contact output | 1 |
 | Gate contact | Magnetic, potential-free NC/NO | 1 |
-| Tactile button | SPST NO, 6mm | 1 |
-| Resistor 10 kΩ | 1/4W (optional, external pull-up for inputs) | 3 |
+| Resistor 10 kΩ | 1/4W (optional, external pull-up) | 2 |
+| Power supply | 5V, ≥500mA regulated | 1 |
 | Door strike | 12V or 24V electric strike/solenoid | 1 |
 | Strike PSU | 12V or 24V, sized to strike current | 1 |
 
 ### GPIO Assignments
 
-> **LP core GPIO note:** The ESP32-C6 application runs on the LP RISC-V core. LP GPIOs (0–7) can be driven via the LP IO controller (`relay_driver`). HP GPIOs (8+) require the HP GPIO controller — use `system_digital_write()` from `system.h` for those. GPIO19 (relay) uses `system_digital_write`; GPIO2 (LED) uses `relay_driver`.
-
 | GPIO | Direction | Function |
 |---|---|---|
-| GPIO19 | Output | Relay IN — **hardwired on board** (NO contact) |
-| GPIO2 | Output | Internal programmable LED |
-| GPIO5 | Input | Reset button — external tactile switch to GND |
-| GPIO6 | Input | SICK LIDAR contact (active-low, pull-up) — door sensor |
-| GPIO7 | Input | Gate door contact (active-low, pull-up) — gate sensor |
+| GPIO19 | Output | Relay IN — **hardwired on board** (NO contact, LOW=locked, HIGH=unlocked) |
+| GPIO2  | Output | Internal programmable LED (on = gate open) |
+| GPIO8  | Input  | Toggle/Reset button — external tactile switch to GND |
+| GPIO6  | Input  | SICK LIDAR contact (active-low, internal pull-up) |
+| GPIO7  | Input  | Gate door contact (active-low, internal pull-up) |
 
-> **GPIO0 / relay note:** The relay is Normally Open (NO), so the coil does not pull GPIO0 low at power-on. The ESP32-C6 boots normally. GPIO0 is not a strapping pin on the ESP32-C6.
+> **GPIO19 / Relay note:** The relay is Normally Open (NO), so GPIO19 is not pulled low at power-on. The ESP32-C6 boots normally. Avoid energising the relay programmatically during the first 100 ms after boot.
 
 ### Wiring
 
@@ -84,7 +81,7 @@ Left header (single connector):
 
 Board GND ──────────────────────────── GND (button, contacts)
 GPIO19    ──── hardwired to relay ────  (no external wire needed)
-GPIO5     ──────────────────────────── Reset button ── GND
+GPIO8     ──────────────────────────── Toggle/Reset button ── GND
 GPIO6     ──────────────────────────── LIDAR contact ── GND
 GPIO7     ──────────────────────────── Gate contact ── GND
 
@@ -95,8 +92,8 @@ Board relay terminals:
 ```
 
 **Key wiring rules:**
-- Relay is **NO (Normally Open)** and **hardwired to GPIO19** on the board. LOW = off (door locked), HIGH = on (door unlocked).
-- All inputs are **active-low**: contact closed → GPIO pulled to GND → sensor active.
+- Relay is **NO (Normally Open)** and **hardwired to GPIO19** on the board — no relay wiring needed. LOW = locked (fail-secure), HIGH = unlocked.
+- All inputs are **active-low**: contact closed → GPIO pulled to GND → sensor active. Internal pull-ups are enabled in firmware.
 - LIDAR and gate contacts must be **potential-free** (galvanic isolation). If the sensor provides powered contacts, add an opto-isolator between the contact and the GPIO.
 - The strike actuator is powered by its own dedicated supply — the relay contacts are galvanically isolated from the ESP32.
 
@@ -111,7 +108,7 @@ The device exposes four Matter endpoints:
 | Endpoint | Device Type | Matter Code | Maps to |
 |---|---|---|---|
 | EP1 | Root Node | 0x0016 | Managed by system firmware |
-| EP2 | Occupancy Sensor | 0x0107 | SICK LIDAR door sensor (GPIO6) |
+| EP2 | Occupancy Sensor | 0x0107 | SICK LIDAR (GPIO6) |
 | EP3 | Occupancy Sensor | 0x0107 | Gate door contact (GPIO7) |
 | EP4 | On/Off Plugin Unit | 0x010A | Relay / door lock (GPIO19) |
 
@@ -127,7 +124,7 @@ The firmware follows the ESP LowCode Matter split architecture:
 ```
 main/
 ├── app_main.cpp      # Entry point: main(), setup(), loop(), system callbacks
-├── app_driver.cpp    # All hardware logic: relay, LED, button, sensor reporting
+├── app_driver.cpp    # All hardware logic: relay, LED, buttons, sensor reporting
 └── app_priv.h        # Pin definitions, endpoint IDs, function declarations
 configuration/
 ├── data_model_thread.zap   # Matter data model (Thread variant)
@@ -144,35 +141,18 @@ sdkconfig.defaults          # SDK configuration defaults
 
 | Component | Used for |
 |---|---|
-| `system` / `relay_driver` | GPIO19 relay (`system_digital_write`), GPIO2 LED (`relay_driver`) |
+| `relay_driver` | GPIO19 relay control and GPIO2 internal LED |
 | `button_driver` | GPIO5/6/7 debounced input with event callbacks |
 | `low_code` | Matter feature updates and system events |
 
-### Relay Logic
-
-The relay (EP4) is controlled by two sources with the following priority:
-
-| State | Relay |
-|---|---|
-| LIDAR detecting (door sensor active) | **ON** — overrides everything |
-| HA switch ON, LIDAR not detecting | ON |
-| HA switch OFF, LIDAR not detecting | OFF |
-| HA switch OFF, LIDAR detecting | **ON** — LIDAR has priority |
-
-In code: `relay_on = ha_switch_on || lidar_active`
-
-The HA switch represents the user's manual command. LIDAR detection temporarily overrides it — the relay turns on for the duration of the detection and turns off again when the LIDAR clears (unless the HA switch is also on).
-
-The gate contact (EP3/GPIO7) does **not** affect the relay — it is reported to HA as an informational sensor only.
-
 ### LED Status Indicator
 
-The on-board LED (GPIO2) mirrors the gate sensor state:
+The internal LED on GPIO2 reflects the gate state:
 
-| LED | Meaning |
+| LED State | Meaning |
 |---|---|
-| OFF | Gate closed |
-| ON  | Gate open |
+| Off | Gate closed |
+| On | Gate open |
 
 ---
 
@@ -276,8 +256,6 @@ Garage Controller starting
 Driver init complete
 ```
 
-The on-board LED should be off (gate closed state).
-
 ---
 
 ## Home Assistant Integration
@@ -340,7 +318,8 @@ action:
 
 | Action | How |
 |---|---|
-| Factory reset / re-pair | Short press reset button |
+| Toggle relay | Single click the button on GPIO5 |
+| Factory reset / re-pair | Hold the button on GPIO5 for > 3 seconds |
 
 After factory reset the device re-enters commissioning mode. Remove the old device from Home Assistant before re-pairing.
 
@@ -356,7 +335,7 @@ products/garage_controller/
 │   ├── app_main.cpp          # Main loop, system callbacks, feature dispatch
 │   ├── app_driver.cpp        # Hardware: relay, LED, buttons, sensor reporting
 │   ├── app_priv.h            # Pin defs, endpoint IDs, function declarations
-│   └── CMakeLists.txt        # Component registration
+│   └── CMakeLists.txt        # Component registration (low_code, relay, button)
 ├── configuration/
 │   ├── data_model_thread.zap # Matter data model — Thread (generated)
 │   ├── data_model_wifi.zap   # Matter data model — Wi-Fi (generated, unused)
@@ -377,11 +356,10 @@ products/garage_controller/
 |---|---|---|
 | Relay doesn't click | HP GPIO driven via wrong API | `GPIO_RELAY` must be 19; relay init must use `system_set_pin_mode` + `system_digital_write`, not `relay_driver` (LP-only) |
 | Stuck in download mode after flash | GPIO0 held low at boot | Press EN/RST button, or unplug and replug USB |
-| Sensors not triggering | Wiring or pull-up issue | Short GPIO6 or GPIO7 to GND with a wire to test; check serial for sensor log |
-| Relay on but HA switch shows off | Expected — LIDAR has priority | Relay stays on while LIDAR detects regardless of HA switch state |
-| Only occupancy sensors visible in HA | EP4 ZAP `endpointTypeIndex` mismatch | Re-run `generate_zap.py` and re-commission |
+| Relay doesn't click | Wrong GPIO or relay not powered | Confirm GPIO19 is toggling with a multimeter; check 5V rail |
+| Only occupancy sensors visible in HA | EP4 ZAP compliance error | Re-run `generate_zap.py` using `socket_2_channel` as relay source |
 | Wrong pairing code | Multiple Upload Configuration runs | Always use code from `manual_code.info`, not terminal history |
-| Device not found during commissioning | Not in commissioning mode | Press reset button to reboot into commissioning mode |
+| Device not found during commissioning | Not in commissioning mode | Press reset button briefly to reboot into commissioning mode |
 | Thread device not reachable | Thread Border Router offline | Verify border router is online in HA Thread panel |
 
 ---

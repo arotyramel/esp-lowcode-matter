@@ -5,9 +5,9 @@
 //
 // GPIO19 : Relay hardwired on board (NO — LOW=off, HIGH=on) — HP GPIO, needs system_digital_write
 // GPIO2  : Internal programmable LED (on = gate open)
-// GPIO5  : Reset button (active-low)
-// GPIO6  : SICK LIDAR contact (active-low, pull-up) — door sensor
-// GPIO7  : Gate door contact (active-low, pull-up)  — gate sensor
+// GPIO8  : Toggle/Reset button (active-low): single click = relay toggle, long press = factory reset
+// GPIO6  : SICK LIDAR contact (active-low, pull-up)
+// GPIO7  : Gate door contact (active-low, pull-up)
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -92,9 +92,25 @@ int app_driver_report_gate(bool open)
 
 /* ── Button callbacks ───────────────────────────────────────────────────── */
 
+static void btn_toggle_cb(void *handle, void *usr_data)
+{
+    bool new_state = !g_state.lock_unlocked;
+    printf("%s: Toggle button → relay %s\n", TAG, new_state ? "UNLOCKED" : "LOCKED");
+    app_driver_set_lock_state(new_state);
+
+    /* Report new state back to Matter so Home Assistant stays in sync */
+    low_code_feature_data_t feature = {};
+    feature.details.endpoint_id = EP_DOOR_LOCK;
+    feature.details.feature_id  = LOW_CODE_FEATURE_ID_POWER;
+    feature.value.type          = LOW_CODE_VALUE_TYPE_BOOLEAN;
+    feature.value.value_len     = sizeof(bool);
+    feature.value.value         = (uint8_t *)&g_state.lock_unlocked;
+    low_code_feature_update_to_system(&feature);
+}
+
 static void btn_reset_cb(void *handle, void *usr_data)
 {
-    printf("%s: Reset button → factory reset\n", TAG);
+    printf("%s: Reset button (long press) → factory reset\n", TAG);
     low_code_event_t event = {};
     event.event_type = LOW_CODE_EVENT_FACTORY_RESET;
     low_code_event_to_system(&event);
@@ -133,8 +149,8 @@ int app_driver_init()
         .active_level     = 0,
     };
     s_btn_reset = button_driver_create(&reset_cfg);
-    button_driver_register_cb(s_btn_reset, BUTTON_SINGLE_CLICK, btn_reset_cb, NULL);
-    button_driver_register_cb(s_btn_reset, BUTTON_LONG_PRESS_UP, btn_reset_cb, NULL);
+    button_driver_register_cb(s_btn_reset, BUTTON_SINGLE_CLICK,  btn_toggle_cb, NULL);
+    button_driver_register_cb(s_btn_reset, BUTTON_LONG_PRESS_UP, btn_reset_cb,  NULL);
 
     button_config_t lidar_cfg = {
         .short_press_time = 50,

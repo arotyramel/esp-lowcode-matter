@@ -1,0 +1,59 @@
+# synchronize_door_locks.yaml
+#
+# Home Assistant automation — place in your <config>/automations/ folder and
+# add the following to configuration.yaml if not already using split files:
+#
+#   automation: !include_dir_merge_list automations/
+#
+# Nuki lock states on topic  nuki/4072766C/state:
+#   1 = locked    → side door locked,   LIDAR control enabled
+#   2 = unlocking → side door unlocked, LIDAR control disabled
+#   3 = unlocked  → side door unlocked, LIDAR control disabled
+#   4 = locking   → side door locked,   LIDAR control enabled
+#
+# ESPHome entity IDs (device name: garage-controller):
+#   switch.garage_controller_esp_home_door_unlocked    — physical relay
+#   switch.garage_controller_esp_home_nuki_lock_active — LIDAR suppression flag
+
+alias: "Synchronize Door Locks"
+description: >
+  Keeps the garage side-door relay in sync with the Nuki main-door lock.
+  When the main door is unlocked (state 2/3) the side door opens and LIDAR
+  auto-control is disabled. When the main door is locked (state 1/4) the
+  side door closes and LIDAR can trigger a timed 10 s unlock again.
+# restart: if a new MQTT state arrives while a delay is running (e.g. the
+# 60 s grace period), cancel it and act on the latest state immediately.
+mode: restart
+
+trigger:
+  - platform: mqtt
+    topic: nuki/4072766C/state
+
+action:
+  - choose:
+      # ── Main door unlocking / unlocked → open side door, suppress LIDAR ──
+      - conditions:
+          - condition: template
+            value_template: "{{ (trigger.payload | int(0)) in [2, 3] }}"
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id:
+                - switch.garage_controller_esp_home_door_unlocked
+                - switch.garage_controller_esp_home_nuki_lock_active
+
+      # ── Main door locking / locked → 60 s grace, then close side door ────
+      - conditions:
+          - condition: template
+            value_template: "{{ (trigger.payload | int(0)) in [1, 4] }}"
+        sequence:
+          # Re-enable LIDAR immediately so presence detection works during grace
+          - action: switch.turn_off
+            target:
+              entity_id: switch.garage_controller_esp_home_nuki_lock_active
+          # Grace period — enough time to walk through the garage door
+          - delay: "00:01:00"
+          # Lock the side door (skipped if automation restarts due to new state)
+          - action: switch.turn_off
+            target:
+              entity_id: switch.garage_controller_esp_home_door_unlocked
